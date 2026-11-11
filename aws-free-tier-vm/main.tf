@@ -103,6 +103,7 @@ resource "aws_instance" "vm" {
     cat > /var/www/html/index.html <<HTML
     <h1>Hello from Terraform!</h1>
     <p>Instance: $(hostname)</p>
+    <p>New change</p>
     HTML
     systemctl enable --now nginx
   CLOUDINIT
@@ -114,5 +115,6 @@ resource "aws_instance" "vm" {
 
   tags = {
     Name = "${var.project_name}-vm"
+    Owner = "Uliana"
   }
 }
