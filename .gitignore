@@ -15,3 +15,13 @@ terraform.tfvars
 crash.log
 crash.*.log
 hello.txt
+
+# SSH keys and certificates: never commit, public or private.
+# Keys belong in ~/.ssh, not in the project folder.
+*.pem
+*.key
+*.pub
+id_rsa*
+id_ed25519*
+id_ecdsa*
+*.ppk

@@ -1,7 +1,11 @@
 variable "aws_region" {
-  description = "AWS region to deploy into. Free-tier eligibility is the same in all regions, but prices for anything outside the free tier differ."
+  description = "AWS region to deploy into, e.g. eu-central-1. REQUIRED: there is no default on purpose. Set it in terraform.tfvars or Terraform will ask for it on every run."
   type        = string
-  default     = "eu-central-1"
+
+  validation {
+    condition     = can(regex("^[a-z]{2}(-gov)?-[a-z]+-[0-9]$", var.aws_region))
+    error_message = "Must look like a real AWS region, e.g. eu-central-1, us-east-1, eu-west-2. Run: aws ec2 describe-regions --query 'Regions[].RegionName' --output text"
+  }
 }
 
 variable "project_name" {

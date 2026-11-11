@@ -1,0 +1,10 @@
+<!DOCTYPE html>
+<html>
+<head><title>{{ greeting }}</title></head>
+<body>
+  <h1>{{ greeting }}!</h1>
+  <p>Student: {{ student_name }}</p>
+  <p>Host: {{ inventory_hostname }} ({{ ansible_facts['hostname'] }})</p>
+  <p>Managed by Ansible. Terraform created the VM, Ansible configured it.</p>
+</body>
+</html>

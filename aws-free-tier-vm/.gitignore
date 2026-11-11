@@ -14,3 +14,17 @@ terraform.tfvars
 # Crash logs
 crash.log
 crash.*.log
+
+# SSH keys and certificates: never commit, public or private.
+# Keys belong in ~/.ssh, not in the project folder.
+*.pem
+*.key
+*.pub
+id_rsa*
+id_ed25519*
+id_ecdsa*
+*.ppk
+
+# Ansible: generated inventory contains your VM IP and key path
+ansible/inventory.ini
+*.retry

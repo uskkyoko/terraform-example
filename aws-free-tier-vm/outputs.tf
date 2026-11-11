@@ -14,8 +14,8 @@ output "ami_used" {
 }
 
 output "ssh_command" {
-  description = "Copy-paste this to log in"
-  value       = "ssh ubuntu@${aws_instance.vm.public_ip}"
+  description = "Copy-paste this to log in. The private key is assumed to sit next to the .pub file, without the .pub suffix."
+  value       = "ssh -i ${trimsuffix(var.ssh_public_key_path, ".pub")} ubuntu@${aws_instance.vm.public_ip}"
 }
 
 output "web_url" {

@@ -1,0 +1,52 @@
+---
+# Installs and starts nginx on the VM created by Terraform, and deploys a page.
+#
+# Run it twice:
+#   ansible-playbook playbook.yml        -> some tasks "changed"
+#   ansible-playbook playbook.yml        -> everything "ok", changed=0
+# The second run is your idempotency proof for Ansible.
+#
+# Note: the Terraform user_data script already installed nginx at first boot,
+# so on the first run only the page template (and maybe apt cache) will show
+# as changed. If you want the install itself to appear as "changed", comment
+# out the user_data block in ../main.tf before `terraform apply`.
+
+- name: Configure web server
+  hosts: web
+  become: true
+
+  vars:
+    greeting: "Hello from Ansible"
+    student_name: "change me in playbook.yml"
+
+  tasks:
+    - name: Refresh apt cache if older than one hour
+      ansible.builtin.apt:
+        update_cache: true
+        cache_valid_time: 3600
+
+    - name: Install nginx
+      ansible.builtin.apt:
+        name: nginx
+        state: present
+
+    - name: Deploy the web page
+      ansible.builtin.template:
+        src: index.html.j2
+        dest: /var/www/html/index.html
+        owner: root
+        group: root
+        mode: "0644"
+      notify: Reload nginx
+
+    - name: Make sure nginx is enabled and running
+      ansible.builtin.service:
+        name: nginx
+        state: started
+        enabled: true
+
+  handlers:
+    - name: Reload nginx
+      ansible.builtin.service:
+        name: nginx
+        state: reloaded

@@ -7,6 +7,7 @@ you follow the cleanup steps at the end**.
 
 Time needed: 60 to 90 minutes.
 
+
 ## What you will build
 
 ```
@@ -45,6 +46,7 @@ ssh-keygen -t ed25519 -C "student"      #   creates ~/.ssh/id_ed25519.pub
 cd aws-free-tier-vm
 cp terraform.tfvars.example terraform.tfvars
 curl -s ifconfig.me                     # your public IP, for ssh_allowed_cidr
+aws configure get region                # put this value in terraform.tfvars as aws_region (REQUIRED)
 #    edit terraform.tfvars: aws_region, ssh_public_key_path, ssh_allowed_cidr = "<ip>/32"
 
 # 2. Create the VM
@@ -112,15 +114,115 @@ charged. This takes two minutes and is the best habit you will learn today.
 2. **AWS CLI** installed: `aws --version`.
 3. **Terraform >= 1.5** installed: `terraform -version`.
    macOS: `brew install terraform`. Others: https://developer.hashicorp.com/terraform/install
-4. **An SSH key pair on your laptop.** If `ls ~/.ssh/id_ed25519.pub` shows
-   nothing, create one:
+4. **An SSH key pair on your laptop.** See the next section; it takes two
+   minutes and you need it before `terraform apply`.
 
-   ```bash
-   ssh-keygen -t ed25519 -C "student"
-   ```
+## SSH keys: what they are and what to do with yours
 
-   Accept the defaults. The `.pub` file is uploaded to AWS; the private key
-   never leaves your machine.
+Logging in to a Linux VM in the cloud is done with an **SSH key pair**, not a
+password:
+
+- the **private key** (file without extension, e.g. `~/.ssh/id_ed25519`) stays
+  on your laptop. It is your identity. Treat it like a password.
+- the **public key** (same name plus `.pub`) can be given to anyone. Terraform
+  uploads it to AWS, and AWS copies it onto the VM at first boot.
+
+When you run `ssh`, your laptop proves it holds the private key that matches
+the public key on the VM. Nothing secret is sent over the network.
+
+### 1. Do you already have a key?
+
+```bash
+ls ~/.ssh/*.pub
+```
+
+- **Nothing listed**: go to step 2 and create one.
+- **You see `id_ed25519.pub`**: you are done, the lab uses that path by default.
+- **You see other `.pub` files** (for example one you use for GitHub or a
+  server): you may reuse one. Tell Terraform which, in `terraform.tfvars`:
+
+  ```hcl
+  ssh_public_key_path = "~/.ssh/my_other_key.pub"
+  ```
+
+  Only the `.pub` file is read. The private key next to it is never read by
+  Terraform.
+
+### 2. Create a key (if you have none)
+
+```bash
+ssh-keygen -t ed25519 -C "terraform-lab"
+```
+
+Press Enter to accept the default location `~/.ssh/id_ed25519`. You will be
+asked for a passphrase. A passphrase protects the key if your laptop is stolen;
+you will have to type it at every `ssh` unless you use an agent (see below).
+Leaving it empty is acceptable for a lab key you will delete afterwards.
+
+Windows: run the same command in PowerShell (OpenSSH is built in since
+Windows 10). The key lands in `C:\Users\<you>\.ssh\`. In `terraform.tfvars`
+write the path with forward slashes: `"C:/Users/<you>/.ssh/id_ed25519.pub"`.
+
+Check the result:
+
+```bash
+ls -l ~/.ssh/id_ed25519*     # two files: private (no extension) and .pub
+cat ~/.ssh/id_ed25519.pub    # starts with "ssh-ed25519 AAAA..."; this is what AWS gets
+```
+
+### 3. Connect after `terraform apply`
+
+The `ssh_command` output already contains the right flags. Copy-paste it:
+
+```bash
+terraform output -raw ssh_command
+# e.g.  ssh -i ~/.ssh/id_ed25519 ubuntu@3.120.xx.xx
+```
+
+`-i` tells ssh which private key to use. The user is **`ubuntu`** on Ubuntu
+images (it would be `ec2-user` on Amazon Linux). The first time you connect,
+ssh asks whether to trust the host; answer `yes`.
+
+If you do not want to type a passphrase every time, load the key into the
+agent once per session:
+
+```bash
+ssh-add ~/.ssh/id_ed25519
+```
+
+### 4. Rules
+
+- **Never commit keys to git, neither private nor public.** Keep them in
+  `~/.ssh`, never copy them into the project folder. The `.gitignore` here
+  blocks `*.pub`, `*.pem`, `*.key` and `id_*` as a safety net, but a key in a
+  pushed repository must be considered compromised: delete it and make a new one.
+- **Never** share, email or paste a private key anywhere, including chat with
+  your instructor. If asked for "your key", it is always the `.pub` file.
+- Private key file permissions must be `600` (`-rw-------`). If ssh complains
+  "UNPROTECTED PRIVATE KEY FILE", run `chmod 600 ~/.ssh/id_ed25519`.
+- Lost the private key? You cannot recover it and AWS cannot help. Create a
+  new pair, update `ssh_public_key_path`, and `terraform apply`. The key pair
+  resource and the instance will be **replaced** (new VM, new IP).
+- Changing the key on an existing VM without recreating it is possible by
+  hand (edit `~/.ssh/authorized_keys` on the VM) but is out of scope here.
+
+### What Terraform does with the key
+
+```hcl
+resource "aws_key_pair" "this" {
+  key_name   = "${var.project_name}-key"
+  public_key = file(pathexpand(var.ssh_public_key_path))   # reads ONLY the .pub file
+}
+
+resource "aws_instance" "vm" {
+  key_name = aws_key_pair.this.key_name   # AWS puts the public key on the VM at boot
+  # ...
+}
+```
+
+The public key ends up in the Terraform state file as plain text. That is fine
+because it is public. A private key would not be, which is one reason this lab
+never generates keys inside Terraform.
 
 ## Step 1. Give Terraform your AWS credentials
 
@@ -148,7 +250,12 @@ cp terraform.tfvars.example terraform.tfvars
 
 Open `terraform.tfvars` and:
 
-- set `aws_region` to the region you chose in `aws configure`;
+- set `aws_region` to the region you chose in `aws configure` (check with
+  `aws configure get region`). **This value is required**: the variable has
+  no default, so if you leave it out Terraform stops and asks
+  `var.aws_region  Enter a value:` on every `plan`, `apply` and `destroy`.
+  The region decides where your VM physically runs and where you must look
+  for it in the console;
 - optionally set `ssh_allowed_cidr` to your own IP, found with `curl -s ifconfig.me`,
   followed by `/32`. Leaving `0.0.0.0/0` works but lets the whole internet
   knock on port 22.
@@ -195,13 +302,14 @@ curl $(terraform output -raw web_url)
 
 You should get `<h1>Hello from Terraform!</h1>`. Open the same URL in a browser.
 
-Log in:
+Log in (the output already includes `-i <your private key>`):
 
 ```bash
 $(terraform output -raw ssh_command)
 ```
 
-Type `yes` to accept the host key. On the VM, try `cat /var/log/cloud-init-output.log`
+Type `yes` to accept the host key. If you get `Permission denied (publickey)`,
+read the SSH keys section above. On the VM, try `cat /var/log/cloud-init-output.log`
 to see what the first-boot script did, then `exit`.
 
 ## Step 6. Explore the state
@@ -263,9 +371,19 @@ create either, but checking is the habit.
 | `main.tf`                  | Data sources (VPC, subnets, AMI) and the three resources        |
 | `outputs.tf`               | Values printed after apply (IP, SSH command, URL)               |
 | `terraform.tfvars.example` | Template for your own values; copy to `terraform.tfvars`        |
-| `.gitignore`               | Keeps state, lock file and tfvars out of git                    |
+| `.gitignore`               | Keeps state, lock file, tfvars, inventory and keys out of git   |
+| `ansible/`                 | Playbook, template, config and inventory helper for the homework |
 
 ## Troubleshooting
+
+**Terraform asks `var.aws_region  Enter a value:`**
+You have no `terraform.tfvars`, or it lacks `aws_region`. Copy the example
+file and set the region. Typing it at the prompt works too, but you will be
+asked again on the next command. Alternative: `terraform plan -var aws_region=eu-central-1`.
+
+**`Error: Invalid value for variable ... Must look like a real AWS region`**
+Typo in `aws_region`. Valid examples: `eu-central-1`, `us-east-1`, `eu-west-2`.
+List them all with `aws ec2 describe-regions --query 'Regions[].RegionName' --output text`.
 
 **`Error: no matching EC2 VPC found`**
 Your account has no default VPC in this region. In the console go to
@@ -290,6 +408,9 @@ fails, SSH in and check `cat /var/log/cloud-init-output.log`.
 **`Permission denied (publickey)` on SSH**
 The user is `ubuntu`, not `root` or `ec2-user`. Make sure you are using the
 private key that matches the uploaded `.pub`: `ssh -i ~/.ssh/id_ed25519 ubuntu@IP`.
+Compare fingerprints: `ssh-keygen -lf ~/.ssh/id_ed25519.pub` locally versus
+EC2 console -> Key Pairs -> `tf-student-demo-key`. If they differ, you
+uploaded a different key than the one you are logging in with.
 
 **SSH hangs / times out**
 If you set `ssh_allowed_cidr` to your IP, your IP may have changed. Check
@@ -298,6 +419,108 @@ If you set `ssh_allowed_cidr` to your IP, your IP may have changed. Check
 **Terraform says resources exist but the console is empty (or vice versa)**
 You are probably looking at a different region in the console. Check the
 region selector in the top right corner.
+
+## Using this lab for the Week 11 homework
+
+The homework asks for: a Terraform configuration with at least two AWS
+resources, an annotated `terraform plan`, an idempotency proof for Terraform,
+an Ansible playbook run twice, and a `terraform destroy` confirmation. This lab
+produces all of it. Work through it in this order.
+
+### 0. Get the latest version of this repository
+
+This repository is updated between sessions: bugs get fixed, instructions get
+clarified, and the Ansible part was added after the first lab. **Always start
+from the latest version**, otherwise you may fight a problem that is already
+solved, or miss a file the homework needs.
+
+You will submit a link to **your own** GitHub repository, so fork first:
+
+1. On GitHub, open https://github.com/rtym/terraform-example and press *Fork*.
+2. Clone your fork and register the original as `upstream`:
+
+   ```bash
+   git clone git@github.com:<your-github-user>/terraform-example.git
+   cd terraform-example
+   git remote add upstream https://github.com/rtym/terraform-example.git
+   ```
+
+3. **Before every work session**, pull the latest changes from the original:
+
+   ```bash
+   git fetch upstream
+   git merge upstream/main          # or: git rebase upstream/main
+   ```
+
+   If you cloned earlier without forking, `git pull` inside the folder is enough
+   to get the latest version, but you still need your own fork to submit.
+
+Check you are up to date: `git log -1 --format='%h %cd'` should show a recent
+date, and `ls aws-free-tier-vm/ansible/` must list `playbook.yml`.
+
+### 1. Terraform: plan, apply, prove idempotency
+
+```bash
+cd aws-free-tier-vm
+cp terraform.tfvars.example terraform.tfvars    # set region and key path
+terraform init
+terraform plan -no-color > plan-1.txt           # deliverable: annotated plan
+terraform apply                                 # yes
+terraform plan -no-color > plan-2.txt           # deliverable: "No changes."
+```
+
+Annotate `plan-1.txt` in your submission. The symbols Terraform uses:
+
+| Symbol | Meaning                                  | When you see it in this lab                                       |
+|--------|------------------------------------------|-------------------------------------------------------------------|
+| `+`    | create                                   | First plan: key pair, security group, instance                    |
+| `~`    | update in place                          | After adding a tag to the instance                                |
+| `-/+`  | destroy then create (replacement)        | After editing `user_data`; the old VM is destroyed first          |
+| `+/-`  | create then destroy (replacement)        | Same, but with `create_before_destroy` set                        |
+| `-`    | destroy                                  | `terraform destroy`, or removing a resource from the code         |
+| `<=`   | read (data source) during apply          | If a data source cannot be resolved at plan time                  |
+
+`plan-2.txt` must say `No changes. Your infrastructure matches the
+configuration.` That line is the Terraform idempotency proof.
+
+### 2. Ansible: configure the VM, run twice
+
+Install Ansible on your laptop if needed (`pip install ansible` or
+`brew install ansible`), then:
+
+```bash
+./ansible/make-inventory.sh                     # reads IP and key from terraform output
+cd ansible
+ansible all -m ping                             # expect "pong"
+ansible-playbook playbook.yml | tee run-1.txt   # deliverable: some "changed"
+ansible-playbook playbook.yml | tee run-2.txt   # deliverable: changed=0
+curl http://$(cd .. && terraform output -raw public_ip)
+cd ..
+```
+
+Look at the `PLAY RECAP` line of each run. Run 2 must show `changed=0`. That
+is the Ansible idempotency proof. Edit `student_name` in `playbook.yml`, run
+again, and explain in one sentence why exactly one task changed.
+
+### 3. Destroy and confirm
+
+```bash
+terraform destroy -no-color | tee destroy.txt   # yes; deliverable: "Resources: 3 destroyed."
+aws ec2 describe-instances --filters Name=instance-state-name,Values=running --query 'Reservations[].Instances[].InstanceId' --output text
+```
+
+The second command must print nothing. Include both in the submission.
+
+### 4. Submit
+
+Commit your `.tf` files, the `ansible/` folder, `plan-1.txt`, `plan-2.txt`,
+`run-1.txt`, `run-2.txt` and `destroy.txt`, push to your fork and submit the
+repository link in Canvas.
+
+**Do not commit** `terraform.tfstate*`, `terraform.tfvars`,
+`ansible/inventory.ini`, or any SSH key, public or private. The `.gitignore`
+blocks them, but check `git status` before you push. If a private key ever
+lands in a repository, consider it compromised: delete it, create a new pair.
 
 ## Going further
 
